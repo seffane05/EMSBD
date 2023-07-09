@@ -1,0 +1,424 @@
+---
+title: "SEFFANE asmaa"
+author: "SEFFANE Asmaa"
+date: "2023-07-08"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Dans ce projet, j'etudies la prédiction metéologique de  Bâle (Suisse), je ferais une annalyse puis essayer de creer un modéle convenant pour faire des prediction pertinante concernant la pluie, s'il va pleuvoir le lendemain ou non.
+
+D'abord, je telcharge les données puis je verifies la correlation entre mes covariables:
+
+```{r}
+library(readr)
+d.tr <- read.csv2("meteo.train.csv", sep = ",", dec = ".")
+
+library(corrplot)
+corrplot(cor(d.tr[,1:46]))
+```
+
+Il est difficile de lire ce plot, pour ceci j'utiserais une boucle qui m'affichera les covariables corrélées et leurs correlation si elle est superieur à 0.8:
+
+```{r}
+for (i in 7 :45){
+  k=i+1
+  for (j in k : 46){
+    res_ij=abs(cor(d.tr[,i], d.tr[,j]))
+    if (is.na(res_ij)) { res_ij=0 }
+    if (res_ij>=0.8) {
+      cat("\ni: ",  colnames(d.tr[i]))
+      cat(" j: ", colnames(d.tr[j]))
+      cat(" cor: ", res_ij)
+    }
+  }
+}
+```
+
+Nous  avons plusieurs covariables corrélée entre elles.
+Je procède pour choisir les covariables que je garde dans mon modèle comme suit : 
+1)	J’organise mes covariables corrélées entre elle par domaine : 
+•	Cloud	
+•	Sunshine	
+•	Wind	
+•	Gust	
+•	Temperature	
+•	Sea
+2)	Pour chaque domaine je garde uniquement une covariable et j’élimine toutes les autres qui sont corrélées à cette même covariable, en considérant aussi la corrélation par transitivité. Ceci me permet d’avoir le résultat suivant pour les covariables à garder : 
+•	Cloud : Total.Cloud.Cover.daily.mean..sfc.
+•	Sunshine : 
+•	Wind : Wind.Speed.daily.mean..80.m.above.gnd. et  	Wind.Direction.daily.mean..80.m.above.gnd.
+•	Gust :
+•	Temperature : Temperature.daily.max..2.m.above.gnd.
+•	Sea : Mean.Sea.Level.Pressure.daily.max..MSL.
+
+Maintenant je construits mon modèle sur la base des covariables non corrélées entre elles :
+
+
+```{r}
+model0 <- glm(pluie.demain ~ X +
+Temperature.daily.mean..2.m.above.gnd. + 
+Relative.Humidity.daily.mean..2.m.above.gnd. + 
+Mean.Sea.Level.Pressure.daily.mean..MSL. + 
+Total.Precipitation.daily.sum..sfc. + 
+Snowfall.amount.raw.daily.sum..sfc. + 
+High.Cloud.Cover.daily.mean..high.cld.lay. + 
+Medium.Cloud.Cover.daily.mean..mid.cld.lay. + 
+Shortwave.Radiation.daily.sum..sfc. + 
+Wind.Speed.daily.mean..80.m.above.gnd. + 
+Wind.Direction.daily.mean..80.m.above.gnd. + 
+Wind.Direction.daily.mean..900.mb. + 
+Temperature.daily.max..2.m.above.gnd. + 
+Relative.Humidity.daily.max..2.m.above.gnd. + 
+Relative.Humidity.daily.min..2.m.above.gnd. + 
+Mean.Sea.Level.Pressure.daily.max..MSL. + 
+Total.Cloud.Cover.daily.max..sfc. + 
+Total.Cloud.Cover.daily.min..sfc. + 
+High.Cloud.Cover.daily.max..high.cld.lay. + 
+High.Cloud.Cover.daily.min..high.cld.lay. + 
+Medium.Cloud.Cover.daily.max..mid.cld.lay. + 
+Medium.Cloud.Cover.daily.min..mid.cld.lay. + 
+Low.Cloud.Cover.daily.max..low.cld.lay. + 
+Low.Cloud.Cover.daily.min..low.cld.lay.
+, data = d.tr, family = binomial())
+summary(model0)
+```
+
+Je notice qu'il y a certains covariables qui ont une p-valeur plus grande que 5%, verifiant la prediction avant de modifier le modele:
+
+```{r}
+pred0 = predict(model0, newdata = d.tr, type = "response")
+pred = (pred0 >= 0.5)
+
+table(pred, d.tr$pluie.demain) 
+mean(pred == (d.tr$pluie.demain == "TRUE"))
+
+```
+
+essayons un deuxiéme model sans ces covariable:
+
+```{r}
+model1 <- glm(pluie.demain ~ X +
+Mean.Sea.Level.Pressure.daily.mean..MSL. +
+Wind.Speed.daily.mean..80.m.above.gnd. +
+Wind.Direction.daily.mean..80.m.above.gnd. +
+Wind.Direction.daily.mean..900.mb. +
+Medium.Cloud.Cover.daily.max..mid.cld.lay.
+, data = d.tr, family = binomial())
+summary(model1)
+```
+
+Les covariables sont tous significatifs, verifions la prediction:
+
+```{r}
+pred1 = predict(model1, newdata = d.tr, type = "response")
+pred = (pred1 >= 0.5)
+
+table(pred, d.tr$pluie.demain) 
+mean(pred == (d.tr$pluie.demain == "TRUE"))
+
+```
+Ce model n'est pas bon par rapport à la prediction, je rajoutes les covariables:
+l'humidité: Relative.Humidity.daily.mean..2.m.above.gnd. precipitation : Total.Precipitation.daily.sum..sfc.
+la temperature : Temperature.daily.mean..2.m.above.gnd.
+les nuages : Total.Cloud.Cover.daily.mean..sfc. , Medium.Cloud.Cover.daily.mean..mid.cld.lay. et High.Cloud.Cover.daily.mean..high.cld.lay.
+Et la neige : Snowfall.amount.raw.daily.sum..sfc.
+
+```{r}
+model2 <- glm(pluie.demain ~ X +
+Total.Precipitation.daily.sum..sfc. + 
+Shortwave.Radiation.daily.sum..sfc.+
+Snowfall.amount.raw.daily.sum..sfc. +
+Temperature.daily.mean..2.m.above.gnd. + Relative.Humidity.daily.mean..2.m.above.gnd. +  High.Cloud.Cover.daily.mean..high.cld.lay. +  Medium.Cloud.Cover.daily.mean..mid.cld.lay. +
+Medium.Cloud.Cover.daily.max..mid.cld.lay. +
+Total.Cloud.Cover.daily.mean..sfc. +
+Wind.Speed.daily.mean..80.m.above.gnd. +  
+Wind.Direction.daily.mean..80.m.above.gnd. +  
+Wind.Direction.daily.mean..900.mb. +
+Mean.Sea.Level.Pressure.daily.mean..MSL.
+, data = d.tr, family = binomial())
+##summary(model2)
+```
+
+Je verifie la prédiction:
+```{r}
+pred2 = predict(model2, newdata = d.tr, type = "response")
+pred = (pred2 >= 0.5)
+
+table(pred, d.tr$pluie.demain) 
+mean(pred == (d.tr$pluie.demain == "TRUE"))
+
+```
+
+Ce resultat me parait bien.
+
+choisissant un model automatiquement:
+
+```{r}
+model_step = step(glm(pluie.demain ~  X +
+Temperature.daily.mean..2.m.above.gnd. + 
+Relative.Humidity.daily.mean..2.m.above.gnd. + 
+Mean.Sea.Level.Pressure.daily.mean..MSL. + 
+Total.Precipitation.daily.sum..sfc. + 
+Snowfall.amount.raw.daily.sum..sfc. + 
+High.Cloud.Cover.daily.mean..high.cld.lay. + 
+Medium.Cloud.Cover.daily.mean..mid.cld.lay. + 
+Shortwave.Radiation.daily.sum..sfc. + 
+Wind.Speed.daily.mean..80.m.above.gnd. + 
+Wind.Direction.daily.mean..80.m.above.gnd. + 
+Wind.Direction.daily.mean..900.mb. + 
+Temperature.daily.max..2.m.above.gnd. + 
+Relative.Humidity.daily.max..2.m.above.gnd. + 
+Relative.Humidity.daily.min..2.m.above.gnd. + 
+Mean.Sea.Level.Pressure.daily.max..MSL. + 
+Total.Cloud.Cover.daily.max..sfc. + 
+Total.Cloud.Cover.daily.min..sfc. + 
+High.Cloud.Cover.daily.max..high.cld.lay. + 
+High.Cloud.Cover.daily.min..high.cld.lay. + 
+Medium.Cloud.Cover.daily.max..mid.cld.lay. + 
+Medium.Cloud.Cover.daily.min..mid.cld.lay. + 
+Low.Cloud.Cover.daily.max..low.cld.lay. + 
+Low.Cloud.Cover.daily.min..low.cld.lay., data = d.tr, family = binomial))
+```
+
+Je verifie  la prediction:
+
+```{r}
+pred_step = predict(model_step, newdata = d.tr, type = "response")
+pred = (pred_step >= 0.5)
+
+table(pred, d.tr$pluie.demain) 
+mean(pred == (d.tr$pluie.demain == "TRUE"))
+
+```
+
+Il n'y a pas de grande difference entre ce modele et le model2 par rapport à la prediction
+
+maintenant, j'essais le modele probit:
+
+```{r}
+model2_probit <- glm(pluie.demain ~X +
+Temperature.daily.mean..2.m.above.gnd. + 
+Relative.Humidity.daily.mean..2.m.above.gnd. + 
+Mean.Sea.Level.Pressure.daily.mean..MSL. + 
+Total.Precipitation.daily.sum..sfc. + 
+Snowfall.amount.raw.daily.sum..sfc. + 
+High.Cloud.Cover.daily.mean..high.cld.lay. + 
+Medium.Cloud.Cover.daily.mean..mid.cld.lay. + 
+Shortwave.Radiation.daily.sum..sfc. + 
+Wind.Speed.daily.mean..80.m.above.gnd. + 
+Wind.Direction.daily.mean..80.m.above.gnd. + 
+Wind.Direction.daily.mean..900.mb. + 
+Temperature.daily.max..2.m.above.gnd. + 
+Relative.Humidity.daily.max..2.m.above.gnd. + 
+Relative.Humidity.daily.min..2.m.above.gnd. + 
+Mean.Sea.Level.Pressure.daily.max..MSL. + 
+Total.Cloud.Cover.daily.max..sfc. + 
+Total.Cloud.Cover.daily.min..sfc. + 
+High.Cloud.Cover.daily.max..high.cld.lay. + 
+High.Cloud.Cover.daily.min..high.cld.lay. + 
+Medium.Cloud.Cover.daily.max..mid.cld.lay. + 
+Medium.Cloud.Cover.daily.min..mid.cld.lay. + 
+Low.Cloud.Cover.daily.max..low.cld.lay. + 
+Low.Cloud.Cover.daily.min..low.cld.lay., data = d.tr, family = binomial(link = "probit"))
+
+pred2_probit = predict(model2_probit, newdata = d.tr, type = "response")
+pred = (pred2_probit >= 0.5)
+
+table(pred, d.tr$pluie.demain) 
+mean(pred == (d.tr$pluie.demain == "TRUE"))
+
+```
+Aussi il n'y a pas de grande difference par rapport à la prediction.
+
+le model probit du model_step:
+
+```{r}
+model_step_probit <- step(glm(pluie.demain ~ X + 
+                            Temperature.daily.mean..2.m.above.gnd. + 
+                            Relative.Humidity.daily.mean..2.m.above.gnd. + 
+                            Mean.Sea.Level.Pressure.daily.mean..MSL. + 
+                            Total.Precipitation.daily.sum..sfc. + 
+                            Snowfall.amount.raw.daily.sum..sfc. + 
+                            High.Cloud.Cover.daily.mean..high.cld.lay. + 
+                            Medium.Cloud.Cover.daily.mean..mid.cld.lay. + 
+                            Shortwave.Radiation.daily.sum..sfc. + 
+                            Wind.Speed.daily.mean..80.m.above.gnd. + 
+                            Wind.Direction.daily.mean..80.m.above.gnd. + 
+                            Wind.Direction.daily.mean..900.mb. + 
+                            Temperature.daily.max..2.m.above.gnd. + 
+                            Relative.Humidity.daily.max..2.m.above.gnd. + 
+                            Relative.Humidity.daily.min..2.m.above.gnd. + 
+                            Mean.Sea.Level.Pressure.daily.max..MSL. + 
+                            Total.Cloud.Cover.daily.max..sfc. + 
+                            Total.Cloud.Cover.daily.min..sfc. + 
+                            High.Cloud.Cover.daily.max..high.cld.lay. + 
+                            High.Cloud.Cover.daily.min..high.cld.lay. + 
+                            Medium.Cloud.Cover.daily.max..mid.cld.lay. + 
+                            Medium.Cloud.Cover.daily.min..mid.cld.lay. + 
+                            Low.Cloud.Cover.daily.max..low.cld.lay. + 
+                            Low.Cloud.Cover.daily.min..low.cld.lay. , data = d.tr, family = binomial(link = "probit")))
+
+pred_step_probit = predict(model_step_probit, newdata = d.tr, type = "response")
+pred = (pred_step_probit >= 0.5)
+
+table(pred, d.tr$pluie.demain) 
+mean(pred == (d.tr$pluie.demain == "TRUE"))
+```
+Il n'y a pas de grande difference par rapport à la prediction mais c'est mieux. 
+
+Maintenant je passe à la  validation du model en utilisant la validation croisée:
+D'abord on decoupe notre jeu de données:
+
+```{r}
+train = sample(c(TRUE, FALSE), nrow(d.tr), replace = T, prob = c(0.8, 0.2))
+```
+
+je commence par le modéle qui a un meilleur pourcentage de prediction; model2 
+
+```{r}
+model4 <- glm(pluie.demain ~ X +
+Total.Precipitation.daily.sum..sfc. + 
+Shortwave.Radiation.daily.sum..sfc.+
+Snowfall.amount.raw.daily.sum..sfc. +
+Temperature.daily.mean..2.m.above.gnd. + Relative.Humidity.daily.mean..2.m.above.gnd. +  High.Cloud.Cover.daily.mean..high.cld.lay. +  Medium.Cloud.Cover.daily.mean..mid.cld.lay. +
+Medium.Cloud.Cover.daily.max..mid.cld.lay. +
+Total.Cloud.Cover.daily.mean..sfc. +
+Wind.Speed.daily.mean..80.m.above.gnd. +  
+Wind.Direction.daily.mean..80.m.above.gnd. +  
+Wind.Direction.daily.mean..900.mb. +
+Mean.Sea.Level.Pressure.daily.mean..MSL., family = binomial, data = d.tr[train, ])
+
+pred4 = predict(model4, d.tr[!train, ], type = "response")
+```
+
+et on évalue l'erreur de prédiction
+```{r}
+mean(abs(pred4 - d.tr[!train, "pluie.demain"]), na.rm = T)
+```
+c'est une erreur qui est un peu elevé pour moi.
+je vais utiliser le model0 et voir si l'erreur changera;
+
+model0:
+```{r}
+model6 <- glm(pluie.demain ~ X + Temperature.daily.mean..2.m.above.gnd. + 
+    Relative.Humidity.daily.mean..2.m.above.gnd. + Mean.Sea.Level.Pressure.daily.mean..MSL. + 
+    Total.Precipitation.daily.sum..sfc. + Snowfall.amount.raw.daily.sum..sfc. + 
+    High.Cloud.Cover.daily.mean..high.cld.lay. + Medium.Cloud.Cover.daily.mean..mid.cld.lay. + 
+    Shortwave.Radiation.daily.sum..sfc. + Wind.Speed.daily.mean..80.m.above.gnd. + 
+    Wind.Direction.daily.mean..80.m.above.gnd. + Wind.Direction.daily.mean..900.mb. + 
+    Temperature.daily.max..2.m.above.gnd. + Relative.Humidity.daily.max..2.m.above.gnd. + 
+    Relative.Humidity.daily.min..2.m.above.gnd. + Mean.Sea.Level.Pressure.daily.max..MSL. + 
+    Total.Cloud.Cover.daily.max..sfc. + Total.Cloud.Cover.daily.min..sfc. + 
+    High.Cloud.Cover.daily.max..high.cld.lay. + High.Cloud.Cover.daily.min..high.cld.lay. + 
+    Medium.Cloud.Cover.daily.max..mid.cld.lay. + Medium.Cloud.Cover.daily.min..mid.cld.lay. + 
+    Low.Cloud.Cover.daily.max..low.cld.lay. + Low.Cloud.Cover.daily.min..low.cld.lay., family = binomial, data = d.tr[train, ])
+pred6 = predict(model6, d.tr[!train, ], type = "response")
+```
+
+ et on évalue lerreur de prédiction
+
+```{r}
+mean(abs(pred6 - d.tr[!train, "pluie.demain"]), na.rm = T)
+```
+
+model_step:
+```{r}
+model7 <- glm(pluie.demain ~ X + Relative.Humidity.daily.mean..2.m.above.gnd. + 
+    Mean.Sea.Level.Pressure.daily.mean..MSL. + Snowfall.amount.raw.daily.sum..sfc. + 
+    Medium.Cloud.Cover.daily.mean..mid.cld.lay. + Shortwave.Radiation.daily.sum..sfc. + 
+    Wind.Speed.daily.mean..80.m.above.gnd. + Wind.Direction.daily.mean..80.m.above.gnd. + 
+    Wind.Direction.daily.mean..900.mb. + Temperature.daily.max..2.m.above.gnd. + 
+    Relative.Humidity.daily.min..2.m.above.gnd. + Total.Cloud.Cover.daily.min..sfc. + 
+    High.Cloud.Cover.daily.max..high.cld.lay. + Medium.Cloud.Cover.daily.max..mid.cld.lay. + 
+    Low.Cloud.Cover.daily.max..low.cld.lay., family = binomial, d.tr[!train, ])
+pred7 = predict(model7, d.tr[!train, ], type = "response")
+```
+
+et on évalue lerreur de prédiction
+
+```{r}
+mean(abs(pred7 - d.tr[!train, "pluie.demain"]), na.rm = T)
+```
+Ce model n'etait pas le meilleur par rapport à la prédiction mais il est le meilleur par rapport à l'erreur.
+Je verifie l'erreur pour les modéls probit:
+
+model2_probit:
+```{r}
+model8 <- glm(pluie.demain ~  X + Total.Precipitation.daily.sum..sfc. + 
+    Shortwave.Radiation.daily.sum..sfc. + Snowfall.amount.raw.daily.sum..sfc. + 
+    Temperature.daily.mean..2.m.above.gnd. + Relative.Humidity.daily.mean..2.m.above.gnd. + 
+    High.Cloud.Cover.daily.mean..high.cld.lay. + Medium.Cloud.Cover.daily.mean..mid.cld.lay. + 
+    Medium.Cloud.Cover.daily.max..mid.cld.lay. + Total.Cloud.Cover.daily.mean..sfc. + 
+    Wind.Speed.daily.mean..80.m.above.gnd. + Wind.Direction.daily.mean..80.m.above.gnd. + 
+    Wind.Direction.daily.mean..900.mb. + Mean.Sea.Level.Pressure.daily.mean..MSL., family = binomial(link = "probit"), data = d.tr[!train, ])
+pred8 = predict(model8, d.tr[!train, ], type = "response")
+```
+
+et on évalue lerreur de prédiction
+
+```{r}
+mean(abs(pred8 - d.tr[!train, "pluie.demain"]), na.rm = T)
+```
+model_step_probit:
+```{r}
+model9 <- glm(pluie.demain ~ X + Relative.Humidity.daily.mean..2.m.above.gnd. + 
+    Mean.Sea.Level.Pressure.daily.mean..MSL. + Snowfall.amount.raw.daily.sum..sfc. + 
+    Medium.Cloud.Cover.daily.mean..mid.cld.lay. + Shortwave.Radiation.daily.sum..sfc. + 
+    Wind.Speed.daily.mean..80.m.above.gnd. + Wind.Direction.daily.mean..80.m.above.gnd. + 
+    Wind.Direction.daily.mean..900.mb. + Temperature.daily.max..2.m.above.gnd. + 
+    Relative.Humidity.daily.min..2.m.above.gnd. + Total.Cloud.Cover.daily.min..sfc. + 
+    High.Cloud.Cover.daily.max..high.cld.lay. + Medium.Cloud.Cover.daily.max..mid.cld.lay. + 
+    Low.Cloud.Cover.daily.max..low.cld.lay. , data = d.tr[!train, ], family = binomial(link = "probit"))
+pred9 = predict(model9, d.tr[!train, ], type = "response")
+```
+
+et on évalue lerreur de prédiction
+
+```{r}
+mean(abs(pred9 - d.tr[!train, "pluie.demain"]), na.rm = T)
+```
+
+Synthèse des modèles : 
+•	model0 : toutes les covariables non corrélées entre elles : prédiction 73.30% / erreur 37.61%
+•	model2 : les covariables du model1 plus des covariables basées sur une étude bibliographique sur la météo : prédiction 73.55% / erreur 37.23%
+•	model_step : choix de modèle automatique à partir du model0 : prédiction 73.22% / erreur 32.27%
+•	model2_probit : modèle probit de toutes les covariables non corrélées entre elles : prédiction 73.22% / erreur 34.05%
+•	model_step_probit : choix de modèle automatique à partir du model2_probit : prédiction 73.22% / erreur 32.39%
+
+
+D’après tous qui précède, le modèle model_step a le plus petit pourcentage d’erreur et un pourcentage de prédiction du même ordre de grandeur que les autres modèles 73.22% 
+J’opte pour le choix du modèle qui a le plus faible pourcentage d’erreur. J’applique ce modèle sur les données de test : “meteo.test.csv”. 
+
+
+```{r}
+d.tst <- read.csv("meteo.test.csv",  sep = ",", dec = ".")
+summary(d.tst)
+```
+
+Puis je fais mes predictions en utilisant le modele: model_step
+
+
+```{r}
+pred_tst = predict(model_step, d.tst, type = "response")
+pluie.demain = (pred_tst>=0.5)
+```
+
+```{r}
+prediction <- cbind(d.tst, pluie.demain)
+View(prediction)
+
+write.table(prediction,"prediction_SEFFANE_Asmaa.csv",sep=";",col.names=TRUE)
+
+```
+
+
+
+ 
+
+
